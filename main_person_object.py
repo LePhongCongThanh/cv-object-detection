@@ -3,7 +3,6 @@ import numpy as np
 from ultralytics import YOLO
 import os
 import datetime
-import base64 # Import base64 for image encoding
 
 def is_point_in_polygon(point, polygon):
     """
@@ -12,11 +11,11 @@ def is_point_in_polygon(point, polygon):
     """
     return cv2.pointPolygonTest(np.array(polygon, np.int32), point, False) >= 0
 
-def process_stream(stream_url, socketio_emit): # Changed to process_stream and added socketio_emit
-    cap = cv2.VideoCapture(stream_url)
+def process_video(video_path):
+    cap = cv2.VideoCapture(video_path)
 
     if not cap.isOpened():
-        print(f"Error: Could not open stream {stream_url}")
+        print(f"Error: Could not open video {video_path}")
         return
 
     # Load a pre-trained YOLOv8 model
@@ -34,18 +33,12 @@ def process_stream(stream_url, socketio_emit): # Changed to process_stream and a
     captured_object_ids = set()
 
     # Set to keep track of unique people that have passed through the zone
-    unique_people_in_zone_history = set() #nguoi do co the ra khoi zone va quay lai
+    unique_people_in_zone_history = set()
 
     while True:
         ret, frame = cap.read()
         if not ret:
-            print("Failed to read frame from stream, attempting to reconnect...")
-            cap.release()
-            cap = cv2.VideoCapture(stream_url) # Attempt to reconnect
-            if not cap.isOpened():
-                print(f"Error: Could not reconnect to stream {stream_url}")
-                break
-            continue
+            break
 
         # Initialize count for objects in the zone for this frame
         current_objects_in_zone_count = 0
@@ -90,27 +83,34 @@ def process_stream(stream_url, socketio_emit): # Changed to process_stream and a
                             cv2.imwrite(image_filename, frame)
                             print(f"Captured image: {image_filename}")
                             captured_object_ids.add(track_id)
-                            # Emit captured image path or base64 encoded image
-                            socketio_emit('captured_image', {'filename': image_filename, 'object_id': track_id})
                     else:
                         color = (255, 0, 0)  # Blue for objects outside zone
+
+                    # Get class name
+                    # class_id = int(box.cls)
+                    # class_name = model.names[class_id]
 
                     # Draw bounding box and label
                     cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
                     cv2.putText(frame, f"{class_name} ID {track_id}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-        
+
+        # Display the count of objects in the zone
+        cv2.putText(frame, f"Objects in Zone: {current_objects_in_zone_count}", (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+
+        # Display the total count of unique people that have passed through the zone
+        cv2.putText(frame, f"Total People Through Zone: {len(unique_people_in_zone_history)}", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2) # Red color
+
         # Draw the detection zone on the frame
         cv2.polylines(frame, [np.array(detection_zone)], True, (0, 255, 0), 2)
 
-        # Prepare data to emit
-        _, buffer = cv2.imencode('.jpg', frame) # Encode frame to JPEG
-        jpg_as_text = base64.b64encode(buffer).decode('utf-8')
-        
-        socketio_emit('frame_update', {
-            'frame': jpg_as_text,
-            'objects_in_zone': current_objects_in_zone_count,
-            'total_people_through_zone': len(unique_people_in_zone_history)
-        })
+        cv2.imshow('Frame', frame)
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
 
     cap.release()
-    # Removed cv2.destroyAllWindows() as there's no imshow
+    cv2.destroyAllWindows()
+
+if __name__ == '__main__':
+    video_file = r"D:/Yolo/video/man barely escapes work accident.mp4"  # Replace with your video file path
+    process_video(video_file)
